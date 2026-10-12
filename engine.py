@@ -6,6 +6,8 @@ import xml.etree.ElementTree as ET
 import re
 import requests
 import nltk
+from threading import Lock
+from time import monotonic, sleep
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from gdeltdoc import GdeltDoc, Filters
 
@@ -16,6 +18,27 @@ sia = SentimentIntensityAnalyzer()
 
 class ArticleFetchError(RuntimeError):
     """Raised when neither article source can complete its request."""
+
+
+class HistoricalDataError(RuntimeError):
+    """Raised when historical GDELT tone data cannot be retrieved."""
+
+
+_gdelt_request_lock = Lock()
+_last_gdelt_request_at = 0.0
+_GDELT_MIN_REQUEST_INTERVAL = 5.0
+
+
+def _run_gdelt_request(request):
+    """Serialize GDELT requests and observe the API's five-second limit."""
+    global _last_gdelt_request_at
+
+    with _gdelt_request_lock:
+        elapsed = monotonic() - _last_gdelt_request_at
+        if elapsed < _GDELT_MIN_REQUEST_INTERVAL:
+            sleep(_GDELT_MIN_REQUEST_INTERVAL - elapsed)
+        _last_gdelt_request_at = monotonic()
+        return request()
 
 
 def _country_names(target: str) -> list[str]:
@@ -85,7 +108,7 @@ def fetch_country_articles(query_target: str, num_records: int = 35) -> pd.DataF
             timespan="7d",
             num_records=min(num_records, 75)
         )
-        df = gd.article_search(filters)
+        df = _run_gdelt_request(lambda: gd.article_search(filters))
 
         if df is not None and not df.empty and 'title' in df.columns:
             articles = df[['title', 'url', 'seendate', 'domain']]
@@ -96,6 +119,68 @@ def fetch_country_articles(query_target: str, num_records: int = 35) -> pd.DataF
         print(f"GDELT direct fetch notice: {err}")
 
     return fetch_from_rss_fallback(" AND ".join(countries), limit=num_records)
+
+
+def fetch_historical_tension(
+    query_target: str, years: int = 5
+) -> pd.DataFrame:
+    """Fetch monthly GDELT tone history as a 0-100 tension indicator.
+
+    This historical indicator is derived from GDELT's average tone and is
+    distinct from the current headline-negativity score.
+    """
+    if years <= 0:
+        raise ValueError("Historical period must be a positive number of years.")
+
+    countries = _country_names(query_target)
+    country_query = " ".join(f'"{country}"' for country in countries)
+    keyword = f"{country_query} military tension"
+    end_date = datetime.now().date()
+    start_date = end_date.replace(year=end_date.year - years)
+
+    filters = Filters(
+        keyword=keyword,
+        start_date=start_date.strftime("%Y-%m-%d"),
+        end_date=end_date.strftime("%Y-%m-%d"),
+    )
+
+    try:
+        timeline = _run_gdelt_request(
+            lambda: GdeltDoc().timeline_search("timelinetone", filters)
+        )
+    except Exception as exc:
+        raise HistoricalDataError(
+            f"Could not retrieve {years}-year GDELT tone history: {exc}"
+        ) from exc
+
+    if timeline.empty or "datetime" not in timeline.columns:
+        raise HistoricalDataError("GDELT returned no historical tone data.")
+
+    tone_columns = [
+        column
+        for column in timeline.columns
+        if column != "datetime"
+        and pd.api.types.is_numeric_dtype(timeline[column])
+    ]
+    if not tone_columns:
+        raise HistoricalDataError(
+            "GDELT returned historical data without a numeric tone series."
+        )
+
+    monthly_tone = (
+        timeline.assign(datetime=pd.to_datetime(timeline["datetime"]))
+        .set_index("datetime")[tone_columns[0]]
+        .resample("MS")
+        .mean()
+        .dropna()
+    )
+    if monthly_tone.empty:
+        raise HistoricalDataError("GDELT returned no usable monthly tone data.")
+
+    return pd.DataFrame({
+        "date": monthly_tone.index,
+        "score": np.clip(50.0 - monthly_tone.to_numpy() * 5.0, 0.0, 100.0),
+    })
 
 
 def calculate_tension_score(articles_df: pd.DataFrame) -> dict:

@@ -1,6 +1,13 @@
 import streamlit as st
 import plotly.graph_objects as go
-from engine import ArticleFetchError, fetch_country_articles, calculate_tension_score, generate_forecast_trend
+from engine import (
+    ArticleFetchError,
+    HistoricalDataError,
+    fetch_country_articles,
+    fetch_historical_tension,
+    calculate_tension_score,
+    generate_forecast_trend,
+)
 from forecaster import predict_future_events
 
 st.set_page_config(page_title="World Tensions Predictor", layout="wide", page_icon="🌐")
@@ -11,6 +18,11 @@ st.title("🌐 AI Geopolitical Tension & Conflict Early-Warning Predictor")
 @st.cache_data(ttl=300)
 def fetch_cached_country_articles(target: str, num_records: int):
     return fetch_country_articles(target, num_records=num_records)
+
+
+@st.cache_data(ttl=86400)
+def fetch_cached_historical_tension(target: str, years: int):
+    return fetch_historical_tension(target, years=years)
 
 
 # Sidebar setup
@@ -52,16 +64,33 @@ if analyze_btn:
 
     st.markdown("---")
 
+    try:
+        historical_df = fetch_cached_historical_tension(target, 5)
+    except HistoricalDataError as exc:
+        historical_df = None
+        st.warning(
+            "Five-year historical tone data is currently unavailable. "
+            f"The chart will show the forecast only. Details: {exc}"
+        )
+
     # Time-series Plot
     forecast_horizon_days = 15
     forecast_period_days = 3
-    h_dates, h_vals, f_dates, f_vals = generate_forecast_trend(
+    _, _, f_dates, f_vals = generate_forecast_trend(
         metrics['score'],
         days_forecast=forecast_horizon_days,
         period_days=forecast_period_days,
     )
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=h_dates, y=h_vals, mode='lines+markers', name='Illustrative Trend (Synthetic, 30D)', line=dict(color='#00b4d8', width=2)))
+    if historical_df is not None:
+        fig.add_trace(go.Scatter(
+            x=historical_df["date"],
+            y=historical_df["score"],
+            mode="lines",
+            name="Historical GDELT Tone Indicator (Monthly, 5Y)",
+            line=dict(color="#00b4d8", width=2),
+            hovertemplate="%{x|%b %Y}: %{y:.1f}<extra></extra>",
+        ))
     forecast_periods = [
         f"Days {start + 1}-{min(start + forecast_period_days, forecast_horizon_days)}"
         for start in range(0, forecast_horizon_days, forecast_period_days)
