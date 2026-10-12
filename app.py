@@ -2,9 +2,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from engine import (
     ArticleFetchError,
-    HistoricalDataError,
     fetch_country_articles,
-    fetch_historical_tension,
     calculate_tension_score,
     generate_forecast_trend,
 )
@@ -18,11 +16,6 @@ st.title("🌐 AI Geopolitical Tension & Conflict Early-Warning Predictor")
 @st.cache_data(ttl=300)
 def fetch_cached_country_articles(target: str, num_records: int):
     return fetch_country_articles(target, num_records=num_records)
-
-
-@st.cache_data(ttl=86400)
-def fetch_cached_historical_tension(target: str, days: int):
-    return fetch_historical_tension(target, days=days)
 
 
 # Sidebar setup
@@ -70,34 +63,22 @@ if analyze_btn:
 
     st.markdown("---")
 
-    historical_days = 30
-    try:
-        historical_df = fetch_cached_historical_tension(target, historical_days)
-    except HistoricalDataError as exc:
-        historical_df = None
-        st.warning(
-            f"Past {historical_days}-day tone data is currently unavailable. "
-            f"The chart will show the forecast only. Details: {exc}"
-        )
-
     # Time-series Plot
     forecast_horizon_days = 15
     forecast_period_days = 3
-    _, _, f_dates, f_vals = generate_forecast_trend(
+    h_dates, h_vals, f_dates, f_vals = generate_forecast_trend(
         metrics['score'],
         days_forecast=forecast_horizon_days,
         period_days=forecast_period_days,
     )
     fig = go.Figure()
-    if historical_df is not None:
-        fig.add_trace(go.Scatter(
-            x=historical_df["date"],
-            y=historical_df["score"],
-            mode="lines",
-            name=f"Historical GDELT Tone Indicator (Daily, Past {historical_days} Days)",
-            line=dict(color="#00b4d8", width=2),
-            hovertemplate="%{x|%b %d, %Y}: %{y:.1f}<extra></extra>",
-        ))
+    fig.add_trace(go.Scatter(
+        x=h_dates,
+        y=h_vals,
+        mode="lines+markers",
+        name="Illustrative Trend (Synthetic, 30D)",
+        line=dict(color="#00b4d8", width=2),
+    ))
     forecast_periods = [
         f"Days {start + 1}-{min(start + forecast_period_days, forecast_horizon_days)}"
         for start in range(0, forecast_horizon_days, forecast_period_days)

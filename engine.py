@@ -20,10 +20,6 @@ class ArticleFetchError(RuntimeError):
     """Raised when neither article source can complete its request."""
 
 
-class HistoricalDataError(RuntimeError):
-    """Raised when historical GDELT tone data cannot be retrieved."""
-
-
 _gdelt_request_lock = Lock()
 _last_gdelt_request_at = 0.0
 _GDELT_MIN_REQUEST_INTERVAL = 5.0
@@ -119,68 +115,6 @@ def fetch_country_articles(query_target: str, num_records: int = 35) -> pd.DataF
         print(f"GDELT direct fetch notice: {err}")
 
     return fetch_from_rss_fallback(" AND ".join(countries), limit=num_records)
-
-
-def fetch_historical_tension(
-    query_target: str, days: int = 30
-) -> pd.DataFrame:
-    """Fetch daily GDELT tone history as a 0-100 tension indicator.
-
-    This historical indicator is derived from GDELT's average tone and is
-    distinct from the current headline-negativity score.
-    """
-    if days <= 0:
-        raise ValueError("Historical period must be a positive number of days.")
-
-    countries = _country_names(query_target)
-    country_query = " ".join(f'"{country}"' for country in countries)
-    keyword = f"{country_query} military tension"
-    end_date = datetime.now().date()
-    start_date = end_date - timedelta(days=days - 1)
-
-    filters = Filters(
-        keyword=keyword,
-        start_date=start_date.strftime("%Y-%m-%d"),
-        end_date=end_date.strftime("%Y-%m-%d"),
-    )
-
-    try:
-        timeline = _run_gdelt_request(
-            lambda: GdeltDoc().timeline_search("timelinetone", filters)
-        )
-    except Exception as exc:
-        raise HistoricalDataError(
-            f"Could not retrieve {days}-day GDELT tone history: {exc}"
-        ) from exc
-
-    if timeline.empty or "datetime" not in timeline.columns:
-        raise HistoricalDataError("GDELT returned no historical tone data.")
-
-    tone_columns = [
-        column
-        for column in timeline.columns
-        if column != "datetime"
-        and pd.api.types.is_numeric_dtype(timeline[column])
-    ]
-    if not tone_columns:
-        raise HistoricalDataError(
-            "GDELT returned historical data without a numeric tone series."
-        )
-
-    daily_tone = (
-        timeline.assign(datetime=pd.to_datetime(timeline["datetime"]))
-        .set_index("datetime")[tone_columns[0]]
-        .resample("D")
-        .mean()
-        .dropna()
-    )
-    if daily_tone.empty:
-        raise HistoricalDataError("GDELT returned no usable daily tone data.")
-
-    return pd.DataFrame({
-        "date": daily_tone.index,
-        "score": np.clip(50.0 - daily_tone.to_numpy() * 5.0, 0.0, 100.0),
-    })
 
 
 def calculate_tension_score(articles_df: pd.DataFrame) -> dict:
