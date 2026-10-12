@@ -1,0 +1,8 @@
+gdeltdoc
+nltk
+numpy
+pandas
+plotly
+requests
+scikit-learn
+streamlit
