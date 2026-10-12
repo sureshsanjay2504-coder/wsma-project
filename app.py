@@ -48,10 +48,16 @@ if analyze_btn:
             st.info("Check your internet connection and try again. The app uses Google News RSS if GDELT is unavailable.")
             st.stop()
         if articles_df.empty:
-            st.warning(
-                "No recent headlines were found that mention both countries. "
-                "There is not enough evidence to calculate a bilateral tension score."
-            )
+            if mode == "Bilateral Pair":
+                st.warning(
+                    "No recent headlines were found that mention both countries. "
+                    "There is not enough evidence to calculate a bilateral tension score."
+                )
+            else:
+                st.warning(
+                    f"No recent headlines were found for {target}. "
+                    "There is not enough evidence to calculate a tension score."
+                )
             st.stop()
         metrics = calculate_tension_score(articles_df)
 
