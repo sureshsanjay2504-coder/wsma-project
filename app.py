@@ -21,8 +21,8 @@ def fetch_cached_country_articles(target: str, num_records: int):
 
 
 @st.cache_data(ttl=86400)
-def fetch_cached_historical_tension(target: str, years: int):
-    return fetch_historical_tension(target, years=years)
+def fetch_cached_historical_tension(target: str, days: int):
+    return fetch_historical_tension(target, days=days)
 
 
 # Sidebar setup
@@ -70,13 +70,13 @@ if analyze_btn:
 
     st.markdown("---")
 
-    historical_years = 2
+    historical_days = 30
     try:
-        historical_df = fetch_cached_historical_tension(target, historical_years)
+        historical_df = fetch_cached_historical_tension(target, historical_days)
     except HistoricalDataError as exc:
         historical_df = None
         st.warning(
-            f"{historical_years}-year historical tone data is currently unavailable. "
+            f"Past {historical_days}-day tone data is currently unavailable. "
             f"The chart will show the forecast only. Details: {exc}"
         )
 
@@ -94,9 +94,9 @@ if analyze_btn:
             x=historical_df["date"],
             y=historical_df["score"],
             mode="lines",
-            name=f"Historical GDELT Tone Indicator (Monthly, {historical_years}Y)",
+            name=f"Historical GDELT Tone Indicator (Daily, Past {historical_days} Days)",
             line=dict(color="#00b4d8", width=2),
-            hovertemplate="%{x|%b %Y}: %{y:.1f}<extra></extra>",
+            hovertemplate="%{x|%b %d, %Y}: %{y:.1f}<extra></extra>",
         ))
     forecast_periods = [
         f"Days {start + 1}-{min(start + forecast_period_days, forecast_horizon_days)}"

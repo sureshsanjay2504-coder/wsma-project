@@ -122,21 +122,21 @@ def fetch_country_articles(query_target: str, num_records: int = 35) -> pd.DataF
 
 
 def fetch_historical_tension(
-    query_target: str, years: int = 2
+    query_target: str, days: int = 30
 ) -> pd.DataFrame:
-    """Fetch monthly GDELT tone history as a 0-100 tension indicator.
+    """Fetch daily GDELT tone history as a 0-100 tension indicator.
 
     This historical indicator is derived from GDELT's average tone and is
     distinct from the current headline-negativity score.
     """
-    if years <= 0:
-        raise ValueError("Historical period must be a positive number of years.")
+    if days <= 0:
+        raise ValueError("Historical period must be a positive number of days.")
 
     countries = _country_names(query_target)
     country_query = " ".join(f'"{country}"' for country in countries)
     keyword = f"{country_query} military tension"
     end_date = datetime.now().date()
-    start_date = end_date.replace(year=end_date.year - years)
+    start_date = end_date - timedelta(days=days - 1)
 
     filters = Filters(
         keyword=keyword,
@@ -150,7 +150,7 @@ def fetch_historical_tension(
         )
     except Exception as exc:
         raise HistoricalDataError(
-            f"Could not retrieve {years}-year GDELT tone history: {exc}"
+            f"Could not retrieve {days}-day GDELT tone history: {exc}"
         ) from exc
 
     if timeline.empty or "datetime" not in timeline.columns:
@@ -167,19 +167,19 @@ def fetch_historical_tension(
             "GDELT returned historical data without a numeric tone series."
         )
 
-    monthly_tone = (
+    daily_tone = (
         timeline.assign(datetime=pd.to_datetime(timeline["datetime"]))
         .set_index("datetime")[tone_columns[0]]
-        .resample("MS")
+        .resample("D")
         .mean()
         .dropna()
     )
-    if monthly_tone.empty:
-        raise HistoricalDataError("GDELT returned no usable monthly tone data.")
+    if daily_tone.empty:
+        raise HistoricalDataError("GDELT returned no usable daily tone data.")
 
     return pd.DataFrame({
-        "date": monthly_tone.index,
-        "score": np.clip(50.0 - monthly_tone.to_numpy() * 5.0, 0.0, 100.0),
+        "date": daily_tone.index,
+        "score": np.clip(50.0 - daily_tone.to_numpy() * 5.0, 0.0, 100.0),
     })
 
 
