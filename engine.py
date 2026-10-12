@@ -122,7 +122,7 @@ def fetch_country_articles(query_target: str, num_records: int = 35) -> pd.DataF
 
 
 def fetch_historical_tension(
-    query_target: str, years: int = 5
+    query_target: str, years: int = 2
 ) -> pd.DataFrame:
     """Fetch monthly GDELT tone history as a 0-100 tension indicator.
 

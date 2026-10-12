@@ -70,12 +70,13 @@ if analyze_btn:
 
     st.markdown("---")
 
+    historical_years = 2
     try:
-        historical_df = fetch_cached_historical_tension(target, 5)
+        historical_df = fetch_cached_historical_tension(target, historical_years)
     except HistoricalDataError as exc:
         historical_df = None
         st.warning(
-            "Five-year historical tone data is currently unavailable. "
+            f"{historical_years}-year historical tone data is currently unavailable. "
             f"The chart will show the forecast only. Details: {exc}"
         )
 
@@ -93,7 +94,7 @@ if analyze_btn:
             x=historical_df["date"],
             y=historical_df["score"],
             mode="lines",
-            name="Historical GDELT Tone Indicator (Monthly, 5Y)",
+            name=f"Historical GDELT Tone Indicator (Monthly, {historical_years}Y)",
             line=dict(color="#00b4d8", width=2),
             hovertemplate="%{x|%b %Y}: %{y:.1f}<extra></extra>",
         ))
