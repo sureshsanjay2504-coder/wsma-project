@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import urllib.parse
 import xml.etree.ElementTree as ET
+import re
 import requests
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
@@ -18,13 +19,40 @@ class ArticleFetchError(RuntimeError):
     """Raised when neither article source can complete its request."""
 
 
+def _country_names(target: str) -> list[str]:
+    """Parse one country or an ``AND``-separated bilateral target."""
+    return [
+        country.strip().strip('"')
+        for country in re.split(r"\s+AND\s+", target, flags=re.IGNORECASE)
+        if country.strip().strip('"')
+    ]
+
+
+def _filter_articles_for_target(
+    articles: pd.DataFrame, countries: list[str]
+) -> pd.DataFrame:
+    """For bilateral searches, retain only headlines naming both countries."""
+    if articles.empty or len(countries) < 2:
+        return articles
+
+    matching = articles["title"].fillna("").astype(str).map(
+        lambda title: all(country.casefold() in title.casefold() for country in countries)
+    )
+    return articles.loc[matching].reset_index(drop=True)
+
+
 def fetch_from_rss_fallback(target: str, limit: int = 25) -> pd.DataFrame:
     """Fallback live scraper using Google News RSS if GDELT returns 0 results."""
     try:
-        encoded_query = urllib.parse.quote(f"{target} conflict OR military OR sanctions")
+        countries = _country_names(target)
+        country_query = " ".join(f'"{country}"' for country in countries)
+        encoded_query = urllib.parse.quote(
+            f"{country_query} (conflict OR military OR sanctions OR tensions)"
+        )
         rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-US&gl=US&ceid=US:en"
 
         resp = requests.get(rss_url, timeout=6)
+        resp.raise_for_status()
         root = ET.fromstring(resp.content)
 
         records = []
@@ -40,17 +68,17 @@ def fetch_from_rss_fallback(target: str, limit: int = 25) -> pd.DataFrame:
                 'seendate': pub_date,
                 'domain': source
             })
-        return pd.DataFrame(records)
+        return _filter_articles_for_target(pd.DataFrame(records), countries)
     except Exception as exc:
         raise ArticleFetchError(f"Google News RSS fallback failed: {exc}") from exc
 
 def fetch_country_articles(query_target: str, num_records: int = 35) -> pd.DataFrame:
-    """Fetches articles using simplified GDELT query, falling back to RSS if empty."""
+    """Fetch target-related articles, using RSS if GDELT fails or has no matches."""
     gd = GdeltDoc()
 
-    # 1. Clean query string: avoid nested parentheses which break GDELT URL encoding
-    clean_target = query_target.replace('AND', '').replace('"', '').strip()
-    gdelt_keyword = f"{clean_target} military tension"
+    countries = _country_names(query_target)
+    country_query = " ".join(f'"{country}"' for country in countries)
+    gdelt_keyword = f"{country_query} military tension"
 
     try:
         filters = Filters(
@@ -60,23 +88,24 @@ def fetch_country_articles(query_target: str, num_records: int = 35) -> pd.DataF
         )
         df = gd.article_search(filters)
 
-        # If GDELT found valid articles, return them
         if df is not None and not df.empty and 'title' in df.columns:
-            return df[['title', 'url', 'seendate', 'domain']].head(num_records)
+            articles = df[['title', 'url', 'seendate', 'domain']]
+            articles = _filter_articles_for_target(articles, countries)
+            if not articles.empty:
+                return articles.head(num_records)
     except Exception as err:
         print(f"GDELT direct fetch notice: {err}")
 
-    # 2. If GDELT returns empty or fails, use the live RSS fallback immediately
-    return fetch_from_rss_fallback(clean_target, limit=num_records)
+    return fetch_from_rss_fallback(" AND ".join(countries), limit=num_records)
 
 
 def calculate_tension_score(articles_df: pd.DataFrame) -> dict:
     """Calculate a 0-100 tension score from headline sentiment and article volume."""
     if articles_df.empty:
         return {
-            "score": 30.0,
-            "level": "Low / Baseline",
-            "avg_negativity": 0.08,
+            "score": 0.0,
+            "level": "Insufficient Data",
+            "avg_negativity": 0.0,
             "volume": 0,
         }
 

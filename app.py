@@ -35,6 +35,12 @@ if analyze_btn:
             st.error(str(exc))
             st.info("Check your internet connection and try again. The app uses Google News RSS if GDELT is unavailable.")
             st.stop()
+        if articles_df.empty:
+            st.warning(
+                "No recent headlines were found that mention both countries. "
+                "There is not enough evidence to calculate a bilateral tension score."
+            )
+            st.stop()
         metrics = calculate_tension_score(articles_df)
 
     # Metric Cards
@@ -49,8 +55,8 @@ if analyze_btn:
     # Time-series Plot
     h_dates, h_vals, f_dates, f_vals = generate_forecast_trend(metrics['score'])
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=h_dates, y=h_vals, mode='lines+markers', name='Historical Trend (30D)', line=dict(color='#00b4d8', width=2)))
-    fig.add_trace(go.Scatter(x=f_dates, y=f_vals, mode='lines+markers', name='ML Forecast (Next 14D)', line=dict(color='#e63946', width=2, dash='dash')))
+    fig.add_trace(go.Scatter(x=h_dates, y=h_vals, mode='lines+markers', name='Illustrative Trend (Synthetic, 30D)', line=dict(color='#00b4d8', width=2)))
+    fig.add_trace(go.Scatter(x=f_dates, y=f_vals, mode='lines+markers', name='Model Projection (Next 14D)', line=dict(color='#e63946', width=2, dash='dash')))
     fig.update_layout(title=f"Tension Trend & Predictive Trajectory: {target}", xaxis_title="Date", yaxis_title="Tension Score (0-100)", yaxis_range=[0, 100], template="plotly_dark")
     st.plotly_chart(fig, use_container_width=True)
 
