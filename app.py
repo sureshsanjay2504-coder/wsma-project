@@ -53,12 +53,38 @@ if analyze_btn:
     st.markdown("---")
 
     # Time-series Plot
-    h_dates, h_vals, f_dates, f_vals = generate_forecast_trend(metrics['score'])
+    forecast_horizon_days = 15
+    forecast_period_days = 3
+    h_dates, h_vals, f_dates, f_vals = generate_forecast_trend(
+        metrics['score'],
+        days_forecast=forecast_horizon_days,
+        period_days=forecast_period_days,
+    )
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=h_dates, y=h_vals, mode='lines+markers', name='Illustrative Trend (Synthetic, 30D)', line=dict(color='#00b4d8', width=2)))
-    fig.add_trace(go.Scatter(x=f_dates, y=f_vals, mode='lines+markers', name='Model Projection (Next 14D)', line=dict(color='#e63946', width=2, dash='dash')))
+    forecast_periods = [
+        f"Days {start + 1}-{min(start + forecast_period_days, forecast_horizon_days)}"
+        for start in range(0, forecast_horizon_days, forecast_period_days)
+    ]
+    fig.add_trace(go.Scatter(
+        x=f_dates,
+        y=f_vals,
+        text=forecast_periods,
+        mode='lines+markers',
+        name='Trend Projection (15D, 3-Day Averages)',
+        line=dict(color='#e63946', width=2, dash='dash'),
+        hovertemplate='%{text}: %{y:.1f}<extra></extra>',
+    ))
     fig.update_layout(title=f"Tension Trend & Predictive Trajectory: {target}", xaxis_title="Date", yaxis_title="Tension Score (0-100)", yaxis_range=[0, 100], template="plotly_dark")
     st.plotly_chart(fig, use_container_width=True)
+    st.subheader(
+        f"{forecast_horizon_days}-Day Forecast by "
+        f"{forecast_period_days}-Day Period"
+    )
+    st.table([
+        {"Period": period, "Average Predicted Tension": score}
+        for period, score in zip(forecast_periods, f_vals)
+    ])
 
     # Narrative Brief & Ingested Wires
     left_col, right_col = st.columns([3, 2])

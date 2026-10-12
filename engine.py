@@ -8,7 +8,6 @@ import requests
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from gdeltdoc import GdeltDoc, Filters
-from sklearn.ensemble import RandomForestRegressor
 
 # Ensure VADER sentiment lexicon is loaded
 nltk.download('vader_lexicon', quiet=True)
@@ -138,9 +137,13 @@ def calculate_tension_score(articles_df: pd.DataFrame) -> dict:
 def generate_forecast_trend(
     current_score: float,
     days_history: int = 30,
-    days_forecast: int = 14,
+    days_forecast: int = 15,
+    period_days: int = 3,
 ):
-    """Generate a synthetic historical trend and an ML forecast."""
+    """Generate synthetic history and 3-day averages from a linear trend."""
+    if days_forecast <= 0 or period_days <= 0:
+        raise ValueError("Forecast horizon and period length must be positive.")
+
     dates = [
         datetime.now().date() - timedelta(days=i)
         for i in reversed(range(days_history))
@@ -154,22 +157,26 @@ def generate_forecast_trend(
     history[-1] = current_score
     history = [float(np.clip(value, 10.0, 95.0)) for value in history]
 
-    X = np.arange(len(history)).reshape(-1, 1)
-    model = RandomForestRegressor(n_estimators=40, random_state=42)
-    model.fit(X, np.array(history))
-
-    future_X = np.arange(
+    history_days = np.arange(len(history))
+    slope, intercept = np.polyfit(history_days, np.array(history), 1)
+    future_days = np.arange(
         len(history), len(history) + days_forecast
-    ).reshape(-1, 1)
-    future_preds = model.predict(future_X)
-    future_dates = [
-        datetime.now().date() + timedelta(days=i)
-        for i in range(1, days_forecast + 1)
-    ]
+    )
+    future_preds = np.clip(intercept + slope * future_days, 10.0, 95.0)
+
+    period_dates = []
+    period_averages = []
+    for start in range(0, days_forecast, period_days):
+        period = future_preds[start:start + period_days]
+        period_end_day = min(start + period_days, days_forecast)
+        period_dates.append(
+            datetime.now().date() + timedelta(days=period_end_day)
+        )
+        period_averages.append(round(float(np.mean(period)), 1))
 
     return (
         dates,
         history,
-        future_dates,
-        [round(float(value), 1) for value in future_preds],
+        period_dates,
+        period_averages,
     )
